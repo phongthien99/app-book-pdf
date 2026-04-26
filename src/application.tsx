@@ -33,6 +33,7 @@ import {
 } from '@mui/material';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import NoteAddIcon from '@mui/icons-material/NoteAdd';
+import TranslateIcon from '@mui/icons-material/Translate';
 import ZoomInIcon from '@mui/icons-material/ZoomIn';
 import ZoomOutIcon from '@mui/icons-material/ZoomOut';
 import MenuBookIcon from '@mui/icons-material/MenuBook';
@@ -46,7 +47,11 @@ import PaletteOutlinedIcon from '@mui/icons-material/PaletteOutlined';
 import { PdfDrawingLayer } from './components/pdf-drawing-layer';
 import { PdfNotesDrawer } from './features/pdf-notes/components/PdfNotesDrawer';
 import type { PdfDrawingLine, PdfDrawingTool } from './components/pdf-drawing-layer';
-import type { NoteDraftSeed } from './features/pdf-notes/hooks/hooks.types';
+import type { AutoSavedNoteSeed, NoteDraftSeed } from './features/pdf-notes/hooks/hooks.types';
+import {
+  formatBilingualPdfNote,
+  usePdfTranslationFacade,
+} from './features/pdf-translation/facade/pdf-translation.facade';
 
 // Worker must be configured in the same module as Document/Page components
 pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`;
@@ -248,6 +253,8 @@ function App({ pdfUrl, title, onBack }: AppProps) {
   const [outlineLoading, setOutlineLoading] = useState(false);
   const [contextMenu, setContextMenu] = useState<PdfContextMenu | null>(null);
   const [noteDraftSeed, setNoteDraftSeed] = useState<NoteDraftSeed | null>(null);
+  const [autoSavedNoteSeed, setAutoSavedNoteSeed] = useState<AutoSavedNoteSeed | null>(null);
+  const [translationErrorMessage, setTranslationErrorMessage] = useState('');
   const [renderedPages, setRenderedPages] = useState<Set<number>>(new Set());
   const [drawingTool, setDrawingTool] = useState<PdfDrawingTool | null>(null);
   const [drawingMenuAnchorEl, setDrawingMenuAnchorEl] = useState<HTMLElement | null>(null);
@@ -264,6 +271,7 @@ function App({ pdfUrl, title, onBack }: AppProps) {
   const pageRefs = useRef<Map<number, HTMLDivElement>>(new Map());
   const observerRef = useRef<IntersectionObserver | null>(null);
   const lazyObserverRef = useRef<IntersectionObserver | null>(null);
+  const pdfTranslation = usePdfTranslationFacade({ targetLanguage: 'vi' });
 
   const onLoadSuccess = useCallback((pdf: PdfDocument) => {
     setNumPages(pdf.numPages);
@@ -274,6 +282,8 @@ function App({ pdfUrl, title, onBack }: AppProps) {
     setOutlineItems([]);
     setContextMenu(null);
     setNoteDraftSeed(null);
+    setAutoSavedNoteSeed(null);
+    setTranslationErrorMessage('');
     setDrawingTool(null);
     setActiveDrawingPage(null);
     setPageDrawings(pdfUrl ? readStoredPdfDrawings(pdfUrl) : {});
@@ -490,6 +500,34 @@ function App({ pdfUrl, title, onBack }: AppProps) {
     });
     setContextMenu(null);
   }, [contextMenu]);
+
+  const handleContextTranslateAndSaveNote = useCallback(async () => {
+    if (!contextMenu || !contextMenu.selectedText) return;
+
+    const selectedText = contextMenu.selectedText;
+    const pageNumber = contextMenu.pageNumber;
+
+    setTranslationErrorMessage('');
+    pdfTranslation.reset();
+
+    try {
+      const result = await pdfTranslation.translateText(selectedText);
+
+      setShowNotes(true);
+      setAutoSavedNoteSeed({
+        pageNumber,
+        text: formatBilingualPdfNote(result),
+        requestId: Date.now(),
+        successMessage: 'Đã dịch và lưu ghi chú song ngữ.',
+      });
+      setContextMenu(null);
+    } catch (error) {
+      setTranslationErrorMessage(
+        error instanceof Error ? error.message : 'Không thể dịch đoạn văn bản đã chọn.',
+      );
+      setContextMenu(null);
+    }
+  }, [contextMenu, pdfTranslation]);
 
   // Bake zoom into width — do NOT pass both `width` and `scale` to <Page>
   // because react-pdf multiplies them, causing text layer to misalign with canvas.
@@ -897,11 +935,38 @@ function App({ pdfUrl, title, onBack }: AppProps) {
               : undefined
           }
         >
+          <MenuItem
+            disabled={!contextMenu?.selectedText || pdfTranslation.translating}
+            onClick={() => void handleContextTranslateAndSaveNote()}
+          >
+            {pdfTranslation.translating ? (
+              <CircularProgress size={18} sx={{ mr: 1 }} />
+            ) : (
+              <TranslateIcon fontSize="small" sx={{ mr: 1 }} />
+            )}
+            Dịch và lưu ghi chú
+          </MenuItem>
           <MenuItem onClick={handleContextAddNote}>
             <NoteAddIcon fontSize="small" sx={{ mr: 1 }} />
             Thêm ghi chú vào bên phải
           </MenuItem>
         </Menu>
+
+        {translationErrorMessage && (
+          <Alert
+            severity="error"
+            onClose={() => setTranslationErrorMessage('')}
+            sx={{
+              position: 'absolute',
+              left: 16,
+              right: showNotes ? 336 : 16,
+              bottom: 16,
+              zIndex: (theme) => theme.zIndex.drawer + 1,
+            }}
+          >
+            {translationErrorMessage}
+          </Alert>
+        )}
 
         <PdfNotesDrawer
           open={showNotes}
@@ -909,6 +974,7 @@ function App({ pdfUrl, title, onBack }: AppProps) {
           title={title}
           currentPage={currentPage}
           draftSeed={noteDraftSeed}
+          autoSavedNoteSeed={autoSavedNoteSeed}
           onSelectPage={handleNotePageSelect}
         />
       </Box>

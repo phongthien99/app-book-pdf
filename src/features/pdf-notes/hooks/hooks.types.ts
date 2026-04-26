@@ -3,3 +3,10 @@ export type NoteDraftSeed = {
   selectedText: string;
   requestId: number;
 };
+
+export type AutoSavedNoteSeed = {
+  pageNumber: number;
+  text: string;
+  requestId: number;
+  successMessage?: string;
+};

@@ -172,6 +172,41 @@ export const pdfNoteRepository = {
     return Promise.resolve(note);
   },
 
+  async update(pdfUrl: string | null, noteId: string, input: CreatePdfNoteInput): Promise<PdfNote> {
+    const notes = readStoredNotes(pdfUrl);
+    const existingNote = notes.find((note) => note.id === noteId);
+
+    if (!existingNote) {
+      throw new Error('Không tìm thấy ghi chú để cập nhật.');
+    }
+
+    const updatedNote: PdfNote =
+      input.mode === 'cornell'
+        ? {
+            id: existingNote.id,
+            pageNumber: input.pageNumber,
+            mode: 'cornell',
+            cue: input.cue,
+            notes: input.notes,
+            summary: input.summary,
+            createdAt: existingNote.createdAt,
+          }
+        : {
+            id: existingNote.id,
+            pageNumber: input.pageNumber,
+            mode: 'plain',
+            text: input.text,
+            createdAt: existingNote.createdAt,
+          };
+
+    writeStoredNotes(
+      pdfUrl,
+      notes.map((note) => (note.id === noteId ? updatedNote : note)),
+    );
+
+    return Promise.resolve(updatedNote);
+  },
+
   async delete(pdfUrl: string | null, noteId: string): Promise<void> {
     writeStoredNotes(
       pdfUrl,

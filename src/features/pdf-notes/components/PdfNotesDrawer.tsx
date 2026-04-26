@@ -1,4 +1,6 @@
-import { useRef } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import {
   Alert,
   Box,
@@ -15,14 +17,19 @@ import {
 } from '@mui/material';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
+import EditOutlinedIcon from '@mui/icons-material/EditOutlined';
 import FileDownloadIcon from '@mui/icons-material/FileDownload';
 import FileUploadIcon from '@mui/icons-material/FileUpload';
 
 import { usePdfNotesFacade } from '../facade/pdf-note.facade';
-import type { NoteDraftSeed } from '../hooks/hooks.types';
+import type { PdfNotesFacade } from '../facade/pdf-note.facade.types';
+import type { AutoSavedNoteSeed, NoteDraftSeed } from '../hooks/hooks.types';
 import type { PdfNote, PdfNoteMode } from '../schema/pdf-note.schema';
 
-const NOTES_WIDTH = 320;
+const NOTES_DEFAULT_WIDTH = 320;
+const NOTES_MIN_WIDTH = 280;
+const NOTES_MAX_WIDTH = 720;
+const NOTES_WIDTH_STORAGE_KEY = 'react-mui.pdf-notes.width';
 const NOTE_TEXT_MAX_HEIGHT = 180;
 
 const noteTextScrollSx = {
@@ -34,12 +41,27 @@ const noteTextScrollSx = {
   overflowWrap: 'anywhere',
 } as const;
 
+function clampNotesWidth(width: number) {
+  const viewportMaxWidth = typeof window === 'undefined' ? NOTES_MAX_WIDTH : window.innerWidth - 96;
+
+  return Math.min(Math.max(width, NOTES_MIN_WIDTH), Math.max(NOTES_MIN_WIDTH, Math.min(NOTES_MAX_WIDTH, viewportMaxWidth)));
+}
+
+function readStoredNotesWidth() {
+  if (typeof window === 'undefined') return NOTES_DEFAULT_WIDTH;
+
+  const storedValue = Number(window.localStorage.getItem(NOTES_WIDTH_STORAGE_KEY));
+
+  return Number.isFinite(storedValue) ? clampNotesWidth(storedValue) : NOTES_DEFAULT_WIDTH;
+}
+
 interface PdfNotesDrawerProps {
   open: boolean;
   pdfUrl: string | null;
   title?: string;
   currentPage: number;
   draftSeed: NoteDraftSeed | null;
+  autoSavedNoteSeed?: AutoSavedNoteSeed | null;
   onSelectPage: (pageNumber: number) => void;
 }
 
@@ -80,12 +102,162 @@ function CornellNoteContent({ note }: { note: PdfNote }) {
   );
 }
 
+function MarkdownNoteContent({ text }: { text: string }) {
+  const normalizedText = text.replace(/<br\s*\/?>/gi, ' ');
+
+  return (
+    <Box sx={noteTextScrollSx}>
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
+        components={{
+          p: ({ children }) => (
+            <Typography variant="body2" component="p" sx={{ m: 0, '& + &': { mt: 1 } }}>
+              {children}
+            </Typography>
+          ),
+          strong: ({ children }) => (
+            <Box component="strong" sx={{ fontWeight: 700 }}>
+              {children}
+            </Box>
+          ),
+          table: ({ children }) => (
+            <Box
+              component="table"
+              sx={{
+                width: '100%',
+                borderCollapse: 'separate',
+                borderSpacing: 0,
+                border: '1px solid',
+                borderColor: 'divider',
+                borderRadius: 1,
+                overflow: 'hidden',
+                tableLayout: 'fixed',
+              }}
+            >
+              {children}
+            </Box>
+          ),
+          th: ({ children }) => (
+            <Box
+              component="th"
+              sx={{
+                bgcolor: 'action.hover',
+                borderBottom: '1px solid',
+                borderColor: 'divider',
+                fontSize: '0.75rem',
+                fontWeight: 700,
+                lineHeight: 1.4,
+                px: 1,
+                py: 0.75,
+                textAlign: 'left',
+              }}
+            >
+              {children}
+            </Box>
+          ),
+          td: ({ children }) => (
+            <Box
+              component="td"
+              sx={{
+                borderTop: '1px solid',
+                borderLeft: '1px solid',
+                borderColor: 'divider',
+                fontSize: '0.8125rem',
+                lineHeight: 1.5,
+                overflowWrap: 'anywhere',
+                px: 1,
+                py: 0.75,
+                verticalAlign: 'top',
+                '&:first-of-type': { borderLeft: 0 },
+              }}
+            >
+              {children}
+            </Box>
+          ),
+        }}
+      >
+        {normalizedText}
+      </ReactMarkdown>
+    </Box>
+  );
+}
+
+function NoteEditForm({ facade, mode }: { facade: PdfNotesFacade; mode: PdfNoteMode }) {
+  return mode === 'cornell' ? (
+    <Box sx={{ display: 'grid', gap: 1 }}>
+      <TextField
+        multiline
+        minRows={2}
+        size="small"
+        label="Cue / Câu hỏi"
+        value={facade.editCueDraft}
+        onChange={(event) => facade.setEditCueDraft(event.target.value)}
+      />
+      <TextField
+        multiline
+        minRows={3}
+        size="small"
+        label="Notes"
+        value={facade.editCornellNotesDraft}
+        onChange={(event) => facade.setEditCornellNotesDraft(event.target.value)}
+      />
+      <TextField
+        multiline
+        minRows={2}
+        size="small"
+        label="Summary"
+        value={facade.editSummaryDraft}
+        onChange={(event) => facade.setEditSummaryDraft(event.target.value)}
+      />
+      <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 1 }}>
+        <Button size="small" variant="contained" disabled={!facade.hasEditDraft} onClick={facade.saveEditingNote}>
+          Lưu sửa
+        </Button>
+        <Button size="small" variant="outlined" onClick={facade.cancelEditingNote}>
+          Huỷ
+        </Button>
+      </Box>
+    </Box>
+  ) : (
+    <Box sx={{ display: 'grid', gap: 1 }}>
+      <TextField
+        multiline
+        minRows={4}
+        size="small"
+        hiddenLabel
+        value={facade.editNoteDraft}
+        onChange={(event) => facade.setEditNoteDraft(event.target.value)}
+        sx={{
+          '& .MuiInputBase-root': {
+            alignItems: 'flex-start',
+            fontSize: '0.8125rem',
+            lineHeight: 1.5,
+            p: 1,
+          },
+          '& textarea': {
+            overflowWrap: 'anywhere',
+          },
+        }}
+      />
+      <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 1 }}>
+        <Button size="small" variant="contained" disabled={!facade.hasEditDraft} onClick={facade.saveEditingNote}>
+          Lưu sửa
+        </Button>
+        <Button size="small" variant="outlined" onClick={facade.cancelEditingNote}>
+          Huỷ
+        </Button>
+      </Box>
+    </Box>
+  );
+}
+
 export function PdfNotesDrawer({
   open,
   pdfUrl,
   title,
   currentPage,
   draftSeed,
+  autoSavedNoteSeed,
   onSelectPage,
 }: PdfNotesDrawerProps) {
   const facade = usePdfNotesFacade({
@@ -93,9 +265,54 @@ export function PdfNotesDrawer({
     title,
     currentPage,
     draftSeed,
+    autoSavedNoteSeed,
     onSelectPage,
   });
   const notesImportInputRef = useRef<HTMLInputElement>(null);
+  const [drawerWidth, setDrawerWidth] = useState(readStoredNotesWidth);
+  const [resizing, setResizing] = useState(false);
+
+  const startResize = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    setResizing(true);
+  }, []);
+
+  useEffect(() => {
+    if (!resizing) return;
+
+    const previousCursor = document.body.style.cursor;
+    const previousUserSelect = document.body.style.userSelect;
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+
+    const handlePointerMove = (event: PointerEvent) => {
+      setDrawerWidth(clampNotesWidth(window.innerWidth - event.clientX));
+    };
+
+    const finishResize = () => {
+      setResizing(false);
+    };
+
+    window.addEventListener('pointermove', handlePointerMove);
+    window.addEventListener('pointerup', finishResize);
+    window.addEventListener('pointercancel', finishResize);
+
+    return () => {
+      document.body.style.cursor = previousCursor;
+      document.body.style.userSelect = previousUserSelect;
+      window.removeEventListener('pointermove', handlePointerMove);
+      window.removeEventListener('pointerup', finishResize);
+      window.removeEventListener('pointercancel', finishResize);
+    };
+  }, [resizing]);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(NOTES_WIDTH_STORAGE_KEY, String(drawerWidth));
+    } catch {
+      // Ignore storage failures; resizing should still work for the active session.
+    }
+  }, [drawerWidth]);
 
   return (
     <Drawer
@@ -103,11 +320,11 @@ export function PdfNotesDrawer({
       anchor="right"
       open={open}
       sx={{
-        width: open ? NOTES_WIDTH : 0,
+        width: open ? drawerWidth : 0,
         flexShrink: 0,
-        transition: 'width 0.2s',
+        transition: resizing ? 'none' : 'width 0.2s',
         '& .MuiDrawer-paper': {
-          width: NOTES_WIDTH,
+          width: drawerWidth,
           position: 'relative',
           height: '100%',
           overflow: 'hidden',
@@ -118,6 +335,35 @@ export function PdfNotesDrawer({
       }}
     >
       <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+        <Box
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="Kéo để đổi độ rộng ghi chú"
+          onPointerDown={startResize}
+          sx={{
+            position: 'absolute',
+            top: 0,
+            bottom: 0,
+            left: -4,
+            width: 8,
+            zIndex: 2,
+            cursor: 'col-resize',
+            touchAction: 'none',
+            '&::after': {
+              content: '""',
+              position: 'absolute',
+              top: 0,
+              bottom: 0,
+              left: '50%',
+              width: 2,
+              transform: 'translateX(-50%)',
+              bgcolor: resizing ? 'primary.main' : 'transparent',
+            },
+            '&:hover::after': {
+              bgcolor: 'primary.main',
+            },
+          }}
+        />
         <Box sx={{ px: 2, py: 1.5 }}>
           <Typography variant="subtitle2" fontWeight={700}>
             Ghi chú PDF
@@ -278,6 +524,7 @@ export function PdfNotesDrawer({
             <Box sx={{ display: 'grid', gap: 1.25 }}>
               {facade.notes.map((note) => {
                 const mode = facade.getNoteMode(note);
+                const noteText = note.text ?? note.notes ?? '';
 
                 return (
                   <Box
@@ -317,21 +564,35 @@ export function PdfNotesDrawer({
                       <IconButton
                         size="small"
                         aria-label="Copy ghi chú dạng Markdown"
+                        disabled={facade.editingNoteId === note.id}
                         onClick={() => facade.copyNoteMarkdown(note)}
                       >
                         <ContentCopyIcon fontSize="small" />
                       </IconButton>
-                      <IconButton size="small" aria-label="Xoá ghi chú" onClick={() => facade.deleteNote(note.id)}>
+                      <IconButton
+                        size="small"
+                        aria-label="Sửa ghi chú"
+                        disabled={facade.editingNoteId === note.id}
+                        onClick={() => facade.startEditingNote(note)}
+                      >
+                        <EditOutlinedIcon fontSize="small" />
+                      </IconButton>
+                      <IconButton
+                        size="small"
+                        aria-label="Xoá ghi chú"
+                        disabled={facade.editingNoteId === note.id}
+                        onClick={() => facade.deleteNote(note.id)}
+                      >
                         <DeleteOutlineIcon fontSize="small" />
                       </IconButton>
                     </Box>
 
-                    {mode === 'cornell' ? (
+                    {facade.editingNoteId === note.id ? (
+                      <NoteEditForm facade={facade} mode={mode} />
+                    ) : mode === 'cornell' ? (
                       <CornellNoteContent note={note} />
                     ) : (
-                      <Typography variant="body2" sx={noteTextScrollSx}>
-                        {note.text ?? note.notes}
-                      </Typography>
+                      <MarkdownNoteContent text={noteText} />
                     )}
                   </Box>
                 );

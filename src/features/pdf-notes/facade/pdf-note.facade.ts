@@ -7,6 +7,7 @@ import { useDeletePdfNoteMutation } from '../hooks/useDeletePdfNoteMutation';
 import { useExportPdfNotesJsonMutation } from '../hooks/useExportPdfNotesJsonMutation';
 import { useImportPdfNotesMutation } from '../hooks/useImportPdfNotesMutation';
 import { usePdfNotesQuery } from '../hooks/usePdfNotesQuery';
+import { useUpdatePdfNoteMutation } from '../hooks/useUpdatePdfNoteMutation';
 import type { CreatePdfNoteInput, PdfNote, PdfNoteMode } from '../schema/pdf-note.schema';
 import type { PdfNotesFacade, UsePdfNotesFacadeParams } from './pdf-note.facade.types';
 
@@ -19,10 +20,12 @@ export function usePdfNotesFacade({
   title,
   currentPage,
   draftSeed,
+  autoSavedNoteSeed,
   onSelectPage,
 }: UsePdfNotesFacadeParams): PdfNotesFacade {
   const { data: notes = [], isLoading: loading, error } = usePdfNotesQuery(pdfUrl);
   const createNote = useCreatePdfNoteMutation(pdfUrl);
+  const updateNote = useUpdatePdfNoteMutation(pdfUrl);
   const deleteNoteMutation = useDeletePdfNoteMutation(pdfUrl);
   const importNotes = useImportPdfNotesMutation(pdfUrl);
   const copyNote = useCopyPdfNoteMarkdownMutation();
@@ -34,11 +37,19 @@ export function usePdfNotesFacade({
   const [cornellNotesDraft, setCornellNotesDraft] = useState('');
   const [summaryDraft, setSummaryDraft] = useState('');
   const [notePageNumber, setNotePageNumber] = useState<number | null>(null);
+  const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
+  const [editNoteMode, setEditNoteMode] = useState<PdfNoteMode>('plain');
+  const [editNoteDraft, setEditNoteDraft] = useState('');
+  const [editCueDraft, setEditCueDraft] = useState('');
+  const [editCornellNotesDraft, setEditCornellNotesDraft] = useState('');
+  const [editSummaryDraft, setEditSummaryDraft] = useState('');
+  const [editPageNumber, setEditPageNumber] = useState<number | null>(null);
   const [copyStatus, setCopyStatus] = useState<'idle' | 'success' | 'error'>('idle');
   const [copyMessage, setCopyMessage] = useState('');
   const [importExportStatus, setImportExportStatus] = useState<'idle' | 'success' | 'error'>('idle');
   const [importExportMessage, setImportExportMessage] = useState('');
   const handledSeedIdRef = useRef<number | null>(null);
+  const handledAutoSaveSeedIdRef = useRef<number | null>(null);
 
   const pdfTitle = title ?? 'PDF';
   const activeNotePage = notePageNumber ?? currentPage;
@@ -46,6 +57,12 @@ export function usePdfNotesFacade({
   const hasCornellDraft =
     cueDraft.trim().length > 0 || cornellNotesDraft.trim().length > 0 || summaryDraft.trim().length > 0;
   const hasActiveDraft = noteMode === 'cornell' ? hasCornellDraft : hasPlainDraft;
+  const hasPlainEditDraft = editNoteDraft.trim().length > 0;
+  const hasCornellEditDraft =
+    editCueDraft.trim().length > 0 ||
+    editCornellNotesDraft.trim().length > 0 ||
+    editSummaryDraft.trim().length > 0;
+  const hasEditDraft = editNoteMode === 'cornell' ? hasCornellEditDraft : hasPlainEditDraft;
 
   const resetDraft = useCallback(() => {
     setNoteDraft('');
@@ -53,6 +70,16 @@ export function usePdfNotesFacade({
     setCornellNotesDraft('');
     setSummaryDraft('');
     setNotePageNumber(null);
+  }, []);
+
+  const resetEditDraft = useCallback(() => {
+    setEditingNoteId(null);
+    setEditNoteMode('plain');
+    setEditNoteDraft('');
+    setEditCueDraft('');
+    setEditCornellNotesDraft('');
+    setEditSummaryDraft('');
+    setEditPageNumber(null);
   }, []);
 
   const createDraftInput = useCallback((): CreatePdfNoteInput | null => {
@@ -115,6 +142,29 @@ export function usePdfNotesFacade({
     seedDraft(draftSeed);
   }, [draftSeed, seedDraft]);
 
+  useEffect(() => {
+    if (!autoSavedNoteSeed || handledAutoSaveSeedIdRef.current === autoSavedNoteSeed.requestId) return;
+
+    handledAutoSaveSeedIdRef.current = autoSavedNoteSeed.requestId;
+    createNote.mutate(
+      {
+        pageNumber: autoSavedNoteSeed.pageNumber,
+        mode: 'plain',
+        text: autoSavedNoteSeed.text,
+      },
+      {
+        onSuccess: () => {
+          setImportExportStatus('success');
+          setImportExportMessage(autoSavedNoteSeed.successMessage ?? 'Đã lưu ghi chú.');
+        },
+        onError: () => {
+          setImportExportStatus('error');
+          setImportExportMessage('Không thể lưu ghi chú.');
+        },
+      },
+    );
+  }, [autoSavedNoteSeed, createNote]);
+
   const addNote = useCallback(() => {
     const input = createDraftInput();
     if (!input) return;
@@ -123,6 +173,56 @@ export function usePdfNotesFacade({
       onSuccess: resetDraft,
     });
   }, [createDraftInput, createNote, resetDraft]);
+
+  const startEditingNote = useCallback((note: PdfNote) => {
+    const mode = getNoteMode(note);
+
+    setEditingNoteId(note.id);
+    setEditNoteMode(mode);
+    setEditPageNumber(note.pageNumber);
+    setEditNoteDraft(mode === 'plain' ? note.text ?? note.notes ?? '' : '');
+    setEditCueDraft(mode === 'cornell' ? note.cue ?? '' : '');
+    setEditCornellNotesDraft(mode === 'cornell' ? note.notes ?? note.text ?? '' : '');
+    setEditSummaryDraft(mode === 'cornell' ? note.summary ?? '' : '');
+  }, []);
+
+  const saveEditingNote = useCallback(() => {
+    if (!editingNoteId || !hasEditDraft || !editPageNumber) return;
+
+    updateNote.mutate(
+      {
+        noteId: editingNoteId,
+        input:
+          editNoteMode === 'cornell'
+            ? {
+                pageNumber: editPageNumber,
+                mode: editNoteMode,
+                cue: editCueDraft,
+                notes: editCornellNotesDraft,
+                summary: editSummaryDraft,
+              }
+            : {
+                pageNumber: editPageNumber,
+                mode: editNoteMode,
+                text: editNoteDraft,
+              },
+      },
+      {
+        onSuccess: resetEditDraft,
+      },
+    );
+  }, [
+    editCornellNotesDraft,
+    editCueDraft,
+    editNoteDraft,
+    editNoteMode,
+    editPageNumber,
+    editSummaryDraft,
+    editingNoteId,
+    hasEditDraft,
+    resetEditDraft,
+    updateNote,
+  ]);
 
   const deleteNote = useCallback(
     (noteId: string) => {
@@ -226,6 +326,13 @@ export function usePdfNotesFacade({
       summaryDraft,
       activeNotePage,
       hasActiveDraft,
+      editingNoteId,
+      editNoteMode,
+      editNoteDraft,
+      editCueDraft,
+      editCornellNotesDraft,
+      editSummaryDraft,
+      hasEditDraft,
       copyStatus,
       copyMessage,
       importExportStatus,
@@ -235,8 +342,15 @@ export function usePdfNotesFacade({
       setCueDraft,
       setCornellNotesDraft,
       setSummaryDraft,
+      setEditNoteDraft,
+      setEditCueDraft,
+      setEditCornellNotesDraft,
+      setEditSummaryDraft,
       seedDraft,
       addNote,
+      startEditingNote,
+      cancelEditingNote: resetEditDraft,
+      saveEditingNote,
       deleteNote,
       copyNoteMarkdown,
       copyAllNotesMarkdown,
@@ -257,9 +371,16 @@ export function usePdfNotesFacade({
       cornellNotesDraft,
       cueDraft,
       deleteNote,
+      editCornellNotesDraft,
+      editCueDraft,
+      editingNoteId,
+      editNoteDraft,
+      editNoteMode,
+      editSummaryDraft,
       error?.message,
       exportNotesJson,
       hasActiveDraft,
+      hasEditDraft,
       importExportMessage,
       importExportStatus,
       importNotesJson,
@@ -269,6 +390,9 @@ export function usePdfNotesFacade({
       notes,
       seedDraft,
       selectNotePage,
+      saveEditingNote,
+      resetEditDraft,
+      startEditingNote,
       summaryDraft,
     ],
   );

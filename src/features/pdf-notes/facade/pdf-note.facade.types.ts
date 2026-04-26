@@ -1,4 +1,4 @@
-import type { NoteDraftSeed } from '../hooks/hooks.types';
+import type { AutoSavedNoteSeed, NoteDraftSeed } from '../hooks/hooks.types';
 import type { PdfNote, PdfNoteMode } from '../schema/pdf-note.schema';
 
 export type FacadeStatus = 'idle' | 'success' | 'error';
@@ -14,6 +14,13 @@ export interface PdfNotesFacade {
   summaryDraft: string;
   activeNotePage: number;
   hasActiveDraft: boolean;
+  editingNoteId: string | null;
+  editNoteMode: PdfNoteMode;
+  editNoteDraft: string;
+  editCueDraft: string;
+  editCornellNotesDraft: string;
+  editSummaryDraft: string;
+  hasEditDraft: boolean;
   copyStatus: FacadeStatus;
   copyMessage: string;
   importExportStatus: FacadeStatus;
@@ -23,8 +30,15 @@ export interface PdfNotesFacade {
   setCueDraft: (value: string) => void;
   setCornellNotesDraft: (value: string) => void;
   setSummaryDraft: (value: string) => void;
+  setEditNoteDraft: (value: string) => void;
+  setEditCueDraft: (value: string) => void;
+  setEditCornellNotesDraft: (value: string) => void;
+  setEditSummaryDraft: (value: string) => void;
   seedDraft: (seed: NoteDraftSeed) => void;
   addNote: () => void;
+  startEditingNote: (note: PdfNote) => void;
+  cancelEditingNote: () => void;
+  saveEditingNote: () => void;
   deleteNote: (noteId: string) => void;
   copyNoteMarkdown: (note: PdfNote) => void;
   copyAllNotesMarkdown: () => void;
@@ -40,5 +54,6 @@ export interface UsePdfNotesFacadeParams {
   title?: string;
   currentPage: number;
   draftSeed: NoteDraftSeed | null;
+  autoSavedNoteSeed?: AutoSavedNoteSeed | null;
   onSelectPage: (pageNumber: number) => void;
 }
