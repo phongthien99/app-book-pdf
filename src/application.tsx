@@ -29,6 +29,7 @@ import {
   Toolbar as MuiToolbar,
   Typography,
   Alert,
+  Tooltip,
 } from '@mui/material';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import NoteAddIcon from '@mui/icons-material/NoteAdd';
@@ -36,8 +37,15 @@ import ZoomInIcon from '@mui/icons-material/ZoomIn';
 import ZoomOutIcon from '@mui/icons-material/ZoomOut';
 import MenuBookIcon from '@mui/icons-material/MenuBook';
 import NotesIcon from '@mui/icons-material/Notes';
+import GestureOutlinedIcon from '@mui/icons-material/GestureOutlined';
+import CleaningServicesOutlinedIcon from '@mui/icons-material/CleaningServicesOutlined';
+import UndoIcon from '@mui/icons-material/Undo';
+import DeleteSweepOutlinedIcon from '@mui/icons-material/DeleteSweepOutlined';
+import PaletteOutlinedIcon from '@mui/icons-material/PaletteOutlined';
 
+import { PdfDrawingLayer } from './components/pdf-drawing-layer';
 import { PdfNotesDrawer } from './features/pdf-notes/components/PdfNotesDrawer';
+import type { PdfDrawingLine, PdfDrawingTool } from './components/pdf-drawing-layer';
 import type { NoteDraftSeed } from './features/pdf-notes/hooks/hooks.types';
 
 // Worker must be configured in the same module as Document/Page components
@@ -47,6 +55,10 @@ const ZOOM_STEPS = [0.5, 0.75, 1.0, 1.25, 1.5, 2.0];
 const MIN_ZOOM = ZOOM_STEPS[0]!;
 const MAX_ZOOM = ZOOM_STEPS[ZOOM_STEPS.length - 1]!;
 const OUTLINE_WIDTH = 260;
+const DRAWING_COLOR_OPTIONS = ['#d32f2f', '#1976d2', '#2e7d32', '#f9a825', '#111827'];
+const PEN_WIDTH_OPTIONS = [2, 3, 5, 8, 12];
+const ERASER_WIDTH_OPTIONS = [12, 20, 32, 48];
+const PDF_DRAWINGS_STORAGE_PREFIX = 'react-mui.pdf-drawings.';
 
 type PdfContextMenu = {
   mouseX: number;
@@ -108,6 +120,62 @@ async function buildOutlineEntries(
       };
     }),
   );
+}
+
+function getPdfDrawingsStorageKey(pdfUrl: string) {
+  return `${PDF_DRAWINGS_STORAGE_PREFIX}${pdfUrl}`;
+}
+
+function isPdfDrawingTool(value: unknown): value is PdfDrawingTool {
+  return value === 'pen' || value === 'eraser';
+}
+
+function isPdfDrawingLine(value: unknown): value is PdfDrawingLine {
+  if (!value || typeof value !== 'object') return false;
+
+  const line = value as Partial<PdfDrawingLine>;
+
+  return (
+    typeof line.id === 'string' &&
+    isPdfDrawingTool(line.tool) &&
+    typeof line.color === 'string' &&
+    typeof line.strokeWidth === 'number' &&
+    Number.isFinite(line.strokeWidth) &&
+    Array.isArray(line.points) &&
+    line.points.every((point) => typeof point === 'number' && Number.isFinite(point))
+  );
+}
+
+function isPdfDrawingsRecord(value: unknown): value is Record<number, PdfDrawingLine[]> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+
+  return Object.entries(value).every(([pageNumber, lines]) => {
+    const normalizedPageNumber = Number(pageNumber);
+
+    return (
+      Number.isInteger(normalizedPageNumber) &&
+      normalizedPageNumber > 0 &&
+      Array.isArray(lines) &&
+      lines.every(isPdfDrawingLine)
+    );
+  });
+}
+
+function readStoredPdfDrawings(pdfUrl: string): Record<number, PdfDrawingLine[]> {
+  try {
+    const rawValue = window.localStorage.getItem(getPdfDrawingsStorageKey(pdfUrl));
+    if (!rawValue) return {};
+
+    const parsedValue: unknown = JSON.parse(rawValue);
+
+    return isPdfDrawingsRecord(parsedValue) ? parsedValue : {};
+  } catch {
+    return {};
+  }
+}
+
+function hasAnyPdfDrawings(drawings: Record<number, PdfDrawingLine[]>) {
+  return Object.values(drawings).some((lines) => lines.length > 0);
 }
 
 interface OutlineListProps {
@@ -181,6 +249,14 @@ function App({ pdfUrl, title, onBack }: AppProps) {
   const [contextMenu, setContextMenu] = useState<PdfContextMenu | null>(null);
   const [noteDraftSeed, setNoteDraftSeed] = useState<NoteDraftSeed | null>(null);
   const [renderedPages, setRenderedPages] = useState<Set<number>>(new Set());
+  const [drawingTool, setDrawingTool] = useState<PdfDrawingTool | null>(null);
+  const [drawingMenuAnchorEl, setDrawingMenuAnchorEl] = useState<HTMLElement | null>(null);
+  const [penColor, setPenColor] = useState(DRAWING_COLOR_OPTIONS[0]!);
+  const [penStrokeWidth, setPenStrokeWidth] = useState(3);
+  const [eraserStrokeWidth, setEraserStrokeWidth] = useState(24);
+  const [activeDrawingPage, setActiveDrawingPage] = useState<number | null>(null);
+  const [pageDrawings, setPageDrawings] = useState<Record<number, PdfDrawingLine[]>>({});
+  const [drawingsHydrated, setDrawingsHydrated] = useState(false);
   const renderedPagesRef = useRef<Set<number>>(new Set());
 
   const scrollTimerRef = useRef<ReturnType<typeof setTimeout>>();
@@ -198,10 +274,36 @@ function App({ pdfUrl, title, onBack }: AppProps) {
     setOutlineItems([]);
     setContextMenu(null);
     setNoteDraftSeed(null);
+    setDrawingTool(null);
+    setActiveDrawingPage(null);
+    setPageDrawings(pdfUrl ? readStoredPdfDrawings(pdfUrl) : {});
+    setDrawingsHydrated(true);
     pageRefs.current.clear();
     renderedPagesRef.current = new Set();
     setRenderedPages(new Set());
-  }, []);
+  }, [pdfUrl]);
+
+  useEffect(() => {
+    setDrawingsHydrated(false);
+    setActiveDrawingPage(null);
+    setPageDrawings({});
+  }, [pdfUrl]);
+
+  useEffect(() => {
+    if (!pdfUrl || !drawingsHydrated) return;
+
+    const storageKey = getPdfDrawingsStorageKey(pdfUrl);
+
+    try {
+      if (hasAnyPdfDrawings(pageDrawings)) {
+        window.localStorage.setItem(storageKey, JSON.stringify(pageDrawings));
+      } else {
+        window.localStorage.removeItem(storageKey);
+      }
+    } catch {
+      // Ignore storage quota/private-mode failures; drawing still works for this session.
+    }
+  }, [drawingsHydrated, pageDrawings, pdfUrl]);
 
   useEffect(() => {
     if (!pdfDoc) return;
@@ -291,6 +393,56 @@ function App({ pdfUrl, title, onBack }: AppProps) {
   const zoomIn = () => setScale((s) => ZOOM_STEPS.find((z) => z > s) ?? s);
   const zoomOut = () => setScale((s) => [...ZOOM_STEPS].reverse().find((z) => z < s) ?? s);
 
+  const handleDrawingToolToggle = useCallback((tool: PdfDrawingTool) => {
+    setDrawingTool((currentTool) => (currentTool === tool ? null : tool));
+  }, []);
+
+  const handleDrawingMenuOpen = useCallback((event: React.MouseEvent<HTMLElement>) => {
+    setDrawingMenuAnchorEl(event.currentTarget);
+  }, []);
+
+  const handleDrawingMenuClose = useCallback(() => {
+    setDrawingMenuAnchorEl(null);
+  }, []);
+
+  const drawingActionPage =
+    activeDrawingPage && pageDrawings[activeDrawingPage]?.length ? activeDrawingPage : currentPage;
+  const drawingActionPageHasLines = Boolean(pageDrawings[drawingActionPage]?.length);
+
+  const handlePageDrawingChange = useCallback((
+    pageNumber: number,
+    updater: (lines: PdfDrawingLine[]) => PdfDrawingLine[],
+  ) => {
+    setActiveDrawingPage(pageNumber);
+    setPageDrawings((currentDrawings) => ({
+      ...currentDrawings,
+      [pageNumber]: updater(currentDrawings[pageNumber] ?? []),
+    }));
+  }, []);
+
+  const undoCurrentPageDrawing = useCallback(() => {
+    setPageDrawings((currentDrawings) => {
+      const lines = currentDrawings[drawingActionPage] ?? [];
+      if (!lines.length) return currentDrawings;
+
+      return {
+        ...currentDrawings,
+        [drawingActionPage]: lines.slice(0, -1),
+      };
+    });
+  }, [drawingActionPage]);
+
+  const clearCurrentPageDrawings = useCallback(() => {
+    setPageDrawings((currentDrawings) => {
+      if (!currentDrawings[drawingActionPage]?.length) return currentDrawings;
+
+      return {
+        ...currentDrawings,
+        [drawingActionPage]: [],
+      };
+    });
+  }, [drawingActionPage]);
+
   const handleScroll = useCallback(() => {
     setShowPageChip(true);
     clearTimeout(scrollTimerRef.current);
@@ -308,7 +460,7 @@ function App({ pdfUrl, title, onBack }: AppProps) {
   }, [handleOutlinePageSelect]);
 
   const handlePdfContextMenu = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
-    if (!pdfDoc) return;
+    if (!pdfDoc || drawingTool) return;
 
     const target = event.target instanceof Element ? event.target : null;
     const pageElement = target?.closest('[data-page]');
@@ -321,7 +473,7 @@ function App({ pdfUrl, title, onBack }: AppProps) {
       pageNumber: Number.isFinite(pageNumber) && pageNumber > 0 ? pageNumber : currentPage,
       selectedText: window.getSelection()?.toString().trim() ?? '',
     });
-  }, [currentPage, pdfDoc]);
+  }, [currentPage, drawingTool, pdfDoc]);
 
   const closeContextMenu = useCallback(() => {
     setContextMenu(null);
@@ -396,6 +548,166 @@ function App({ pdfUrl, title, onBack }: AppProps) {
             </Typography>
           )}
           <Divider orientation="vertical" flexItem sx={{ backgroundColor: 'white', my: 1.2, opacity: 0.5 }} />
+
+          {pdfDoc && (
+            <>
+              <Tooltip title="Bút vẽ">
+                <IconButton
+                  size="small"
+                  onClick={() => handleDrawingToolToggle('pen')}
+                  aria-label="Bút vẽ"
+                  sx={{ color: drawingTool === 'pen' ? 'rgba(255,255,255,0.45)' : 'white' }}
+                >
+                  <GestureOutlinedIcon fontSize="small" />
+                </IconButton>
+              </Tooltip>
+              <Tooltip title="Tẩy">
+                <IconButton
+                  size="small"
+                  onClick={() => handleDrawingToolToggle('eraser')}
+                  aria-label="Tẩy"
+                  sx={{ color: drawingTool === 'eraser' ? 'rgba(255,255,255,0.45)' : 'white' }}
+                >
+                  <CleaningServicesOutlinedIcon fontSize="small" />
+                </IconButton>
+              </Tooltip>
+              <Tooltip title="Màu và cỡ nét">
+                <IconButton
+                  size="small"
+                  onClick={handleDrawingMenuOpen}
+                  aria-label="Màu và cỡ nét"
+                  sx={{ color: drawingMenuAnchorEl ? 'rgba(255,255,255,0.45)' : 'white' }}
+                >
+                  <PaletteOutlinedIcon fontSize="small" />
+                </IconButton>
+              </Tooltip>
+              <Menu
+                anchorEl={drawingMenuAnchorEl}
+                open={Boolean(drawingMenuAnchorEl)}
+                onClose={handleDrawingMenuClose}
+                anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+                transformOrigin={{ vertical: 'top', horizontal: 'right' }}
+              >
+                <Box sx={{ px: 1.5, pt: 1, pb: 0.5 }}>
+                  <Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 700 }}>
+                    Màu bút
+                  </Typography>
+                  <Box sx={{ display: 'flex', gap: 0.75, mt: 0.75 }}>
+                    {DRAWING_COLOR_OPTIONS.map((color) => (
+                      <ButtonBase
+                        key={color}
+                        onClick={() => setPenColor(color)}
+                        aria-label={`Chọn màu ${color}`}
+                        sx={{
+                          width: 24,
+                          height: 24,
+                          borderRadius: '50%',
+                          bgcolor: color,
+                          border: '2px solid',
+                          borderColor: penColor === color ? 'text.primary' : 'divider',
+                          boxShadow: penColor === color ? '0 0 0 2px rgba(0,0,0,0.12)' : 'none',
+                        }}
+                      />
+                    ))}
+                  </Box>
+                </Box>
+                <Divider sx={{ my: 0.75 }} />
+                <Box sx={{ px: 1.5, py: 0.5 }}>
+                  <Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 700 }}>
+                    Cỡ bút
+                  </Typography>
+                </Box>
+                {PEN_WIDTH_OPTIONS.map((width) => (
+                  <MenuItem
+                    key={width}
+                    selected={penStrokeWidth === width}
+                    onClick={() => setPenStrokeWidth(width)}
+                  >
+                    <Box
+                      sx={{
+                        width: 40,
+                        height: 16,
+                        display: 'flex',
+                        alignItems: 'center',
+                        mr: 1.5,
+                      }}
+                    >
+                      <Box
+                        sx={{
+                          width: 34,
+                          height: width,
+                          maxHeight: 12,
+                          borderRadius: 999,
+                          bgcolor: penColor,
+                        }}
+                      />
+                    </Box>
+                    {width}px
+                  </MenuItem>
+                ))}
+                <Divider sx={{ my: 0.75 }} />
+                <Box sx={{ px: 1.5, py: 0.5 }}>
+                  <Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 700 }}>
+                    Cỡ tẩy
+                  </Typography>
+                </Box>
+                {ERASER_WIDTH_OPTIONS.map((width) => (
+                  <MenuItem
+                    key={width}
+                    selected={eraserStrokeWidth === width}
+                    onClick={() => setEraserStrokeWidth(width)}
+                  >
+                    <Box
+                      sx={{
+                        width: 40,
+                        height: 16,
+                        display: 'flex',
+                        alignItems: 'center',
+                        mr: 1.5,
+                      }}
+                    >
+                      <Box
+                        sx={{
+                          width: 34,
+                          height: Math.min(width, 14),
+                          borderRadius: 999,
+                          bgcolor: 'text.secondary',
+                        }}
+                      />
+                    </Box>
+                    {width}px
+                  </MenuItem>
+                ))}
+              </Menu>
+              <Tooltip title="Hoàn tác trang hiện tại">
+                <span>
+                  <IconButton
+                    size="small"
+                    onClick={undoCurrentPageDrawing}
+                    disabled={!drawingActionPageHasLines}
+                    aria-label="Hoàn tác nét vẽ"
+                    sx={{ color: 'white', '&.Mui-disabled': { color: 'rgba(255,255,255,0.35)' } }}
+                  >
+                    <UndoIcon fontSize="small" />
+                  </IconButton>
+                </span>
+              </Tooltip>
+              <Tooltip title="Xóa nét vẽ trang hiện tại">
+                <span>
+                  <IconButton
+                    size="small"
+                    onClick={clearCurrentPageDrawings}
+                    disabled={!drawingActionPageHasLines}
+                    aria-label="Xóa nét vẽ trang hiện tại"
+                    sx={{ color: 'white', '&.Mui-disabled': { color: 'rgba(255,255,255,0.35)' } }}
+                  >
+                    <DeleteSweepOutlinedIcon fontSize="small" />
+                  </IconButton>
+                </span>
+              </Tooltip>
+              <Divider orientation="vertical" flexItem sx={{ backgroundColor: 'white', my: 1.2, opacity: 0.5 }} />
+            </>
+          )}
 
           <IconButton size="small" onClick={zoomOut} disabled={scale <= MIN_ZOOM} sx={{ color: 'white' }}>
             <ZoomOutIcon fontSize="small" />
@@ -499,13 +811,23 @@ function App({ pdfUrl, title, onBack }: AppProps) {
                   >
                     {isReady ? (
                       <>
-                        <Page
+                        <PdfDrawingLayer
+                          color={penColor}
+                          lines={pageDrawings[pageNumber] ?? []}
+                          onDrawStart={setActiveDrawingPage}
+                          onLinesChange={(updater) => handlePageDrawingChange(pageNumber, updater)}
                           pageNumber={pageNumber}
-                          width={pageWidth}
-                          loading={null}
-                          renderTextLayer
-                          renderAnnotationLayer
-                        />
+                          strokeWidth={drawingTool === 'eraser' ? eraserStrokeWidth : penStrokeWidth}
+                          tool={drawingTool}
+                        >
+                          <Page
+                            pageNumber={pageNumber}
+                            width={pageWidth}
+                            loading={null}
+                            renderTextLayer
+                            renderAnnotationLayer
+                          />
+                        </PdfDrawingLayer>
                         <Typography
                           variant="caption"
                           sx={{

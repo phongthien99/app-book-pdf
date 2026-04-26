@@ -2,7 +2,7 @@
 
 React 18 + MUI PDF reader app. The first screen is a small book library; selecting a book opens the PDF viewer. Books can come from a direct PDF URL, an uploaded file, a saved local configuration, or a JSON import.
 
-The viewer includes a local PDF notes sidebar. Notes are saved per PDF in localStorage and can jump back to their source page. Right-click inside the PDF to add a note from the page context menu.
+The viewer includes a local PDF notes sidebar. Notes are saved per PDF in localStorage and can jump back to their source page. Right-click inside the PDF to add a note from the page context menu. Notes support plain and Cornell formats, Markdown copy, and JSON export/import.
 
 ## Quick Start
 
@@ -40,6 +40,7 @@ Main files:
 - `src/main.tsx`: React root, TanStack Query provider, MUI theme.
 - `src/app-shell.tsx`: owns selected book state and switches between library and viewer.
 - `src/application.tsx`: PDF viewer implementation using `react-pdf`.
+- `src/features/pdf-notes/components/PdfNotesDrawer.tsx`: PDF notes UI backed by the notes facade.
 - `src/features/books/components/BookList.tsx`: book library UI.
 - `src/pages/book-list.tsx`: compatibility re-export for old imports.
 - Selecting a book updates the URL to `/books/<book-title-slug>`.
@@ -47,7 +48,7 @@ Main files:
 
 ## Books Feature
 
-The books feature follows the Facade + Hook + DTO + Repository pattern.
+Feature code follows the Facade + Hook + DTO + Repository pattern.
 
 ```text
 UI Component
@@ -70,6 +71,8 @@ src/features/books/
 ├── utils/           # Pure helpers, such as book title slug generation.
 └── repositories/    # Data source: localStorage and object URLs.
 ```
+
+The PDF notes feature follows the same shape under `src/features/pdf-notes/`.
 
 Book sources:
 

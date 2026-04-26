@@ -41,8 +41,10 @@
     "@mui/icons-material": "^7.1.1",
     "@mui/material": "^7.1.1",
     "@tanstack/react-query": "^5.100.5",
+    "konva": "^9.3.22",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
+    "react-konva": "^18.2.10",
     "react-pdf": "^10.4.1",
     "zod": "^4.3.6"
   },
