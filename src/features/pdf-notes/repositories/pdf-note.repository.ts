@@ -55,14 +55,9 @@ function escapeMarkdownTableCell(value: string) {
   return value.replaceAll('|', '\\|').replace(/\r?\n/g, '<br />');
 }
 
-function formatPdfNoteMarkdown(note: PdfNote, pdfTitle: string, pdfUrl: string | null) {
+function formatPdfNoteContent(note: PdfNote): string {
   const mode = getPdfNoteMode(note);
   const noteText = note.text ?? note.notes ?? '';
-  const metadata = [
-    `- Trang: ${note.pageNumber}`,
-    `- Tạo lúc: ${new Date(note.createdAt).toLocaleString()}`,
-    pdfUrl ? `- PDF: ${pdfUrl}` : null,
-  ].filter((line): line is string => line !== null);
 
   if (mode === 'cornell') {
     const cue = note.cue?.trim() || ' ';
@@ -70,10 +65,6 @@ function formatPdfNoteMarkdown(note: PdfNote, pdfTitle: string, pdfUrl: string |
     const summary = note.summary?.trim();
 
     return [
-      `### ${pdfTitle} - Trang ${note.pageNumber}`,
-      '',
-      ...metadata,
-      '',
       '| Cue / Question | Notes |',
       '|---|---|',
       `| ${escapeMarkdownTableCell(cue)} | ${escapeMarkdownTableCell(notes)} |`,
@@ -86,27 +77,29 @@ function formatPdfNoteMarkdown(note: PdfNote, pdfTitle: string, pdfUrl: string |
       .join('\n');
   }
 
-  return [
-    `### ${pdfTitle} - Trang ${note.pageNumber}`,
-    '',
-    ...metadata,
-    '',
-    noteText,
-  ]
-    .filter((line): line is string => line !== null)
-    .join('\n');
+  return noteText;
 }
 
-function formatPdfNotesMarkdown(notes: PdfNote[], pdfTitle: string, pdfUrl: string | null) {
-  return [
-    `# ${pdfTitle}`,
-    '',
-    pdfUrl ? `PDF: ${pdfUrl}` : null,
-    '',
-    ...notes.map((note) => formatPdfNoteMarkdown(note, pdfTitle, pdfUrl)),
-  ]
-    .filter((line): line is string => line !== null)
-    .join('\n\n');
+function formatPdfNoteMarkdown(note: PdfNote) {
+  return [`**Trang ${note.pageNumber}**`, '', formatPdfNoteContent(note)].join('\n');
+}
+
+function formatPdfNotesMarkdown(notes: PdfNote[], pdfTitle: string) {
+  const grouped = new Map<number, PdfNote[]>();
+  for (const note of notes) {
+    const group = grouped.get(note.pageNumber) ?? [];
+    group.push(note);
+    grouped.set(note.pageNumber, group);
+  }
+
+  const pageBlocks = Array.from(grouped.entries())
+    .sort(([a], [b]) => a - b)
+    .map(([pageNumber, pageNotes]) => {
+      const contents = pageNotes.map(formatPdfNoteContent).join('\n\n');
+      return `**Trang ${pageNumber}**\n\n${contents}`;
+    });
+
+  return [`# ${pdfTitle}`, '', ...pageBlocks].join('\n\n');
 }
 
 async function copyTextToClipboard(text: string) {
@@ -203,12 +196,12 @@ export const pdfNoteRepository = {
     return Promise.resolve(normalizedNotes);
   },
 
-  async copyNoteMarkdown(note: PdfNote, pdfTitle: string, pdfUrl: string | null): Promise<void> {
-    await copyTextToClipboard(formatPdfNoteMarkdown(note, pdfTitle, pdfUrl));
+  async copyNoteMarkdown(note: PdfNote, _pdfTitle: string, _pdfUrl: string | null): Promise<void> {
+    await copyTextToClipboard(formatPdfNoteMarkdown(note));
   },
 
-  async copyNotesMarkdown(notes: PdfNote[], pdfTitle: string, pdfUrl: string | null): Promise<void> {
-    await copyTextToClipboard(formatPdfNotesMarkdown(notes, pdfTitle, pdfUrl));
+  async copyNotesMarkdown(notes: PdfNote[], pdfTitle: string, _pdfUrl: string | null): Promise<void> {
+    await copyTextToClipboard(formatPdfNotesMarkdown(notes, pdfTitle));
   },
 
   exportNotesJson(notes: PdfNote[], pdfTitle: string, pdfUrl: string | null) {
