@@ -54,6 +54,7 @@ Hook suffixes:
 ## Data Rules
 
 - Persisted configured books live in localStorage key `react-mui.books`.
+- PDF notes live in localStorage keys prefixed with `react-mui.pdf-notes.` and are scoped by `pdfUrl`.
 - Uploaded files use object URLs and are not persisted.
 - Direct URL books opened from the quick URL tab are not persisted.
 - JSON imports persist many configured books at once. They support both uploaded files and pasted JSON text.

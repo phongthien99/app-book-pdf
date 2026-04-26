@@ -35,7 +35,8 @@ PDF viewer screen.
 
 - Receives `pdfUrl`, `title`, and `onBack`.
 - Uses `react-pdf` `Document` and `Page`.
-- Handles page count, current page, zoom, custom outline drawer with page numbers, lazy page rendering, and scroll page chip.
+- Handles page count, current page, zoom, custom outline drawer with page numbers, PDF right-click note menu, lazy page rendering, and scroll page chip.
+- Renders the PDF notes feature from `src/features/pdf-notes/components/PdfNotesDrawer.tsx`.
 
 ## Feature Areas
 
@@ -44,6 +45,16 @@ src/features/books/
 ```
 
 Book library feature. See `docs/BOOKS_FEATURE.md`.
+
+```text
+src/features/pdf-notes/
+```
+
+PDF notes feature.
+
+- Follows Component -> Facade -> Hooks -> DTO -> Repository / Schema.
+- Supports plain notes, Cornell notes, Markdown copy, JSON export/import, and page navigation.
+- Persists notes in localStorage per `pdfUrl` using keys prefixed with `react-mui.pdf-notes.`.
 
 ```text
 src/components/
@@ -83,6 +94,6 @@ pnpm run build
 If touching app startup, query providers, or PDF loading, also run the Vite dev server and test:
 
 - library renders
-- built-in book opens
 - URL PDF opens
 - configured book persists after reload
+- PDF notes save, reload, navigate by page, and delete
