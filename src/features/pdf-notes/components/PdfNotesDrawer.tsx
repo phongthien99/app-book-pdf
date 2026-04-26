@@ -8,6 +8,10 @@ import {
   ButtonBase,
   Chip,
   Divider,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
   Drawer,
   IconButton,
   TextField,
@@ -65,7 +69,9 @@ interface PdfNotesDrawerProps {
   onSelectPage: (pageNumber: number) => void;
 }
 
-function CornellNoteContent({ note }: { note: PdfNote }) {
+function CornellNoteContent({ note, expanded = false }: { note: PdfNote; expanded?: boolean }) {
+  const textSx = expanded ? { ...noteTextScrollSx, maxHeight: '60vh' } : noteTextScrollSx;
+
   return (
     <Box sx={{ display: 'grid', gap: 1 }}>
       {note.cue && (
@@ -73,7 +79,7 @@ function CornellNoteContent({ note }: { note: PdfNote }) {
           <Typography variant="caption" color="text.secondary" fontWeight={700}>
             Cue / Question
           </Typography>
-          <Typography variant="body2" sx={noteTextScrollSx}>
+          <Typography variant="body2" sx={textSx}>
             {note.cue}
           </Typography>
         </Box>
@@ -83,7 +89,7 @@ function CornellNoteContent({ note }: { note: PdfNote }) {
           <Typography variant="caption" color="text.secondary" fontWeight={700}>
             Notes
           </Typography>
-          <Typography variant="body2" sx={noteTextScrollSx}>
+          <Typography variant="body2" sx={textSx}>
             {note.notes}
           </Typography>
         </Box>
@@ -93,7 +99,7 @@ function CornellNoteContent({ note }: { note: PdfNote }) {
           <Typography variant="caption" color="text.secondary" fontWeight={700}>
             Summary
           </Typography>
-          <Typography variant="body2" sx={noteTextScrollSx}>
+          <Typography variant="body2" sx={textSx}>
             {note.summary}
           </Typography>
         </Box>
@@ -102,11 +108,11 @@ function CornellNoteContent({ note }: { note: PdfNote }) {
   );
 }
 
-function MarkdownNoteContent({ text }: { text: string }) {
+function MarkdownNoteContent({ text, expanded = false }: { text: string; expanded?: boolean }) {
   const normalizedText = text.replace(/<br\s*\/?>/gi, ' ');
 
   return (
-    <Box sx={noteTextScrollSx}>
+    <Box sx={expanded ? { ...noteTextScrollSx, maxHeight: '60vh' } : noteTextScrollSx}>
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         components={{
@@ -271,6 +277,8 @@ export function PdfNotesDrawer({
   const notesImportInputRef = useRef<HTMLInputElement>(null);
   const [drawerWidth, setDrawerWidth] = useState(readStoredNotesWidth);
   const [resizing, setResizing] = useState(false);
+  const [expandedNoteId, setExpandedNoteId] = useState<string | null>(null);
+  const expandedNote = facade.notes.find((note) => note.id === expandedNoteId) ?? null;
 
   const startResize = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
     event.preventDefault();
@@ -314,7 +322,32 @@ export function PdfNotesDrawer({
     }
   }, [drawerWidth]);
 
+  useEffect(() => {
+    if (expandedNoteId && !expandedNote) {
+      setExpandedNoteId(null);
+    }
+  }, [expandedNote, expandedNoteId]);
+
+  const closeExpandedNote = useCallback(() => {
+    setExpandedNoteId(null);
+  }, []);
+
+  const startEditingExpandedNote = useCallback(() => {
+    if (!expandedNote) return;
+
+    facade.startEditingNote(expandedNote);
+    closeExpandedNote();
+  }, [closeExpandedNote, expandedNote, facade]);
+
+  const deleteExpandedNote = useCallback(() => {
+    if (!expandedNote) return;
+
+    facade.deleteNote(expandedNote.id);
+    closeExpandedNote();
+  }, [closeExpandedNote, expandedNote, facade]);
+
   return (
+    <>
     <Drawer
       variant="persistent"
       anchor="right"
@@ -589,10 +622,33 @@ export function PdfNotesDrawer({
 
                     {facade.editingNoteId === note.id ? (
                       <NoteEditForm facade={facade} mode={mode} />
-                    ) : mode === 'cornell' ? (
-                      <CornellNoteContent note={note} />
                     ) : (
-                      <MarkdownNoteContent text={noteText} />
+                      <Box
+                        role="button"
+                        tabIndex={0}
+                        onClick={() => setExpandedNoteId(note.id)}
+                        onKeyDown={(event) => {
+                          if (event.key === 'Enter' || event.key === ' ') {
+                            event.preventDefault();
+                            setExpandedNoteId(note.id);
+                          }
+                        }}
+                        sx={{
+                          borderRadius: 1,
+                          cursor: 'zoom-in',
+                          '&:focus-visible': {
+                            outline: '2px solid',
+                            outlineColor: 'primary.main',
+                            outlineOffset: 2,
+                          },
+                        }}
+                      >
+                        {mode === 'cornell' ? (
+                          <CornellNoteContent note={note} />
+                        ) : (
+                          <MarkdownNoteContent text={noteText} />
+                        )}
+                      </Box>
                     )}
                   </Box>
                 );
@@ -602,5 +658,70 @@ export function PdfNotesDrawer({
         </Box>
       </Box>
     </Drawer>
+    <Dialog
+      open={Boolean(expandedNote)}
+      onClose={closeExpandedNote}
+      fullWidth
+      maxWidth="md"
+      PaperProps={{
+        sx: {
+          maxHeight: '86vh',
+        },
+      }}
+    >
+      {expandedNote && (
+        <>
+          <DialogTitle sx={{ pb: 1 }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              <ButtonBase
+                onClick={() => facade.selectNotePage(expandedNote.pageNumber)}
+                sx={{
+                  borderRadius: '4px',
+                  color: 'primary.main',
+                  fontSize: '0.875rem',
+                  fontWeight: 700,
+                  lineHeight: 1.4,
+                  px: 0.25,
+                }}
+              >
+                Trang {expandedNote.pageNumber}
+              </ButtonBase>
+              <Chip
+                label={facade.getNoteMode(expandedNote) === 'cornell' ? 'Cornell' : 'Note'}
+                size="small"
+                sx={{ height: 22, fontSize: '0.75rem' }}
+              />
+              <Typography variant="caption" color="text.secondary" sx={{ flexGrow: 1 }}>
+                {new Date(expandedNote.createdAt).toLocaleString()}
+              </Typography>
+              <IconButton
+                size="small"
+                aria-label="Copy ghi chú dạng Markdown"
+                onClick={() => facade.copyNoteMarkdown(expandedNote)}
+              >
+                <ContentCopyIcon fontSize="small" />
+              </IconButton>
+              <IconButton size="small" aria-label="Sửa ghi chú" onClick={startEditingExpandedNote}>
+                <EditOutlinedIcon fontSize="small" />
+              </IconButton>
+              <IconButton size="small" aria-label="Xoá ghi chú" onClick={deleteExpandedNote}>
+                <DeleteOutlineIcon fontSize="small" />
+              </IconButton>
+            </Box>
+          </DialogTitle>
+          <DialogContent dividers sx={{ px: 2, py: 1.5 }}>
+            {facade.getNoteMode(expandedNote) === 'cornell' ? (
+              <CornellNoteContent note={expandedNote} expanded />
+            ) : (
+              <MarkdownNoteContent text={expandedNote.text ?? expandedNote.notes ?? ''} expanded />
+            )}
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={closeExpandedNote}>Đóng</Button>
+          </DialogActions>
+        </>
+      )}
+    </Dialog>
+    </>
   );
 }
