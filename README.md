@@ -2,6 +2,8 @@
 
 React 18 + MUI PDF reader app. The first screen is a small book library; selecting a book opens the PDF viewer. Books can come from a direct PDF URL, an uploaded file, a saved local configuration, or a JSON import.
 
+The viewer includes a local PDF notes sidebar. Notes are saved per PDF in localStorage and can jump back to their source page. Right-click inside the PDF to add a note from the page context menu.
+
 ## Quick Start
 
 ```bash
