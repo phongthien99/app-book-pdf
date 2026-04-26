@@ -163,14 +163,14 @@ Supported shape: a plain array:
     "author": "Robert C. Martin",
     "description": "Software craftsmanship book.",
     "coverUrl": "https://example.com/clean-code.jpg",
-    "pdfUrl": "https://example.com/clean-code.pdf"
+    "pdfUrl": "/books/pm/clean-code.pdf"
   },
   {
     "title": "Domain-Driven Design",
     "author": "Eric Evans",
     "description": "",
     "coverUrl": "",
-    "pdfUrl": "https://example.com/ddd.pdf"
+    "pdfUrl": "/books/pm/ddd.pdf"
   }
 ]
 ```
@@ -185,7 +185,7 @@ Or an object with a `books` array:
       "author": "ISO",
       "description": "",
       "coverUrl": "",
-      "pdfUrl": "https://example.com/pdf-spec.pdf"
+      "pdfUrl": "/books/pm/pdf-spec.pdf"
     }
   ]
 }
@@ -199,7 +199,7 @@ Required fields:
 - `coverUrl`
 - `pdfUrl`
 
-`coverUrl` can be an empty string. `pdfUrl` must be a valid URL.
+`coverUrl` can be an empty string. `pdfUrl` can be an absolute URL or a relative path such as `/books/pm/file.pdf`.
 
 ## Adding A New Book Operation
 

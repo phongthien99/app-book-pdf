@@ -147,7 +147,7 @@ function OpenPdfDialog({ facade }: OpenPdfDialogProps) {
             autoFocus
             fullWidth
             label="URL file PDF"
-            placeholder="https://example.com/document.pdf"
+            placeholder="/books/pm/document.pdf"
             value={facade.url}
             onChange={(event) => facade.setUrl(event.target.value)}
             onKeyDown={handleUrlKeyDown}
@@ -255,7 +255,7 @@ function OpenPdfDialog({ facade }: OpenPdfDialogProps) {
               fullWidth
               required
               label="URL file PDF"
-              placeholder="https://example.com/document.pdf"
+              placeholder="/books/pm/document.pdf"
               value={facade.config.pdfUrl}
               onChange={(event) => facade.setConfigField('pdfUrl', event.target.value)}
               onKeyDown={(event) => event.key === 'Enter' && facade.canSubmit && facade.submitConfig()}
@@ -326,7 +326,7 @@ function OpenPdfDialog({ facade }: OpenPdfDialogProps) {
     "author": "Robert C. Martin",
     "description": "",
     "coverUrl": "",
-    "pdfUrl": "https://example.com/clean-code.pdf"
+    "pdfUrl": "/books/pm/clean-code.pdf"
   }
 ]`}
               value={facade.jsonText}

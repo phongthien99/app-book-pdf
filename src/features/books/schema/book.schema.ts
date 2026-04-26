@@ -1,18 +1,20 @@
 import { z } from 'zod';
 
+const PdfUrlSchema = z.string().trim().min(1, 'PDF URL is required');
+
 export const BookSchema = z.object({
   id: z.string(),
   title: z.string(),
   author: z.string(),
   description: z.string(),
   coverUrl: z.string(),
-  pdfUrl: z.string().min(1, 'PDF URL is required'),
+  pdfUrl: PdfUrlSchema,
 });
 
 export const BooksSchema = z.array(BookSchema);
 
 export const CreateBookFromUrlSchema = z.object({
-  pdfUrl: z.string().trim().url('PDF URL must be valid'),
+  pdfUrl: PdfUrlSchema,
 });
 
 export const CreateBookFromFileSchema = z.object({
@@ -24,7 +26,7 @@ export const CreateBookConfigSchema = z.object({
   author: z.string().trim(),
   description: z.string().trim(),
   coverUrl: z.union([z.literal(''), z.string().trim().url('Cover URL must be valid')]),
-  pdfUrl: z.string().trim().url('PDF URL must be valid'),
+  pdfUrl: PdfUrlSchema,
 });
 
 export const ImportBookConfigsSchema = z
