@@ -38,3 +38,9 @@ pnpm-debug.log*
 
 # Vite cache
 .vite/
+
+# wrangler files
+.wrangler
+.dev.vars*
+!.dev.vars.example
+!.env.example
