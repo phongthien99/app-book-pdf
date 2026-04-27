@@ -27,7 +27,9 @@ export interface BooksFacade {
   submitFile: () => void;
   submitConfig: () => void;
   submitJson: () => void;
+  deleteBook: (bookId: string) => void;
   canSubmit: boolean;
   submitting: boolean;
+  deleting: boolean;
   dialogError: string | null;
 }

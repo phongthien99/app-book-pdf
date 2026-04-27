@@ -6,6 +6,7 @@ import { useBooksQuery } from '../hooks/useBooksQuery';
 import { useCreateBookConfigMutation } from '../hooks/useCreateBookConfigMutation';
 import { useCreateBookFromFileMutation } from '../hooks/useCreateBookFromFileMutation';
 import { useCreateBookFromUrlMutation } from '../hooks/useCreateBookFromUrlMutation';
+import { useDeleteBookMutation } from '../hooks/useDeleteBookMutation';
 import { useImportBookConfigsMutation } from '../hooks/useImportBookConfigsMutation';
 import type { SelectBookHandler } from '../hooks/hooks.types';
 import type { BooksFacade, OpenPdfTab } from './book.facade.types';
@@ -30,6 +31,7 @@ export function useBooksFacade({ onSelectBook }: UseBooksFacadeOptions): BooksFa
   const createFromFile = useCreateBookFromFileMutation();
   const createConfig = useCreateBookConfigMutation();
   const importConfigs = useImportBookConfigsMutation();
+  const deleteBookMutation = useDeleteBookMutation();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [dialogTab, setDialogTab] = useState<OpenPdfTab>('url');
   const [url, setUrl] = useState('');
@@ -111,6 +113,10 @@ export function useBooksFacade({ onSelectBook }: UseBooksFacadeOptions): BooksFa
     });
   };
 
+  const deleteBook = (bookId: string) => {
+    deleteBookMutation.mutate(bookId);
+  };
+
   const submitting =
     createFromUrl.isPending || createFromFile.isPending || createConfig.isPending || importConfigs.isPending;
   const canSubmit =
@@ -162,8 +168,10 @@ export function useBooksFacade({ onSelectBook }: UseBooksFacadeOptions): BooksFa
     submitFile,
     submitConfig,
     submitJson,
+    deleteBook,
     canSubmit,
     submitting,
+    deleting: deleteBookMutation.isPending,
     dialogError,
   };
 }

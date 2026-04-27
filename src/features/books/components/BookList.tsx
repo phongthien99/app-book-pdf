@@ -1,4 +1,4 @@
-import type { ChangeEvent, KeyboardEvent } from 'react';
+import { useState, type ChangeEvent, type KeyboardEvent } from 'react';
 import {
   Alert,
   AppBar,
@@ -24,6 +24,7 @@ import {
   Typography,
 } from '@mui/material';
 import ClearIcon from '@mui/icons-material/Clear';
+import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
 import FileOpenOutlinedIcon from '@mui/icons-material/FileOpenOutlined';
 import LinkIcon from '@mui/icons-material/Link';
 import MenuBookIcon from '@mui/icons-material/MenuBook';
@@ -40,14 +41,17 @@ interface BookListProps {
 
 interface BookCardProps {
   book: Book;
+  deleting: boolean;
+  onDelete: () => void;
   onSelect: () => void;
 }
 
-function BookCard({ book, onSelect }: BookCardProps) {
+function BookCard({ book, deleting, onDelete, onSelect }: BookCardProps) {
   return (
     <Card
       elevation={2}
       sx={{
+        position: 'relative',
         height: '100%',
         display: 'flex',
         flexDirection: 'column',
@@ -55,6 +59,28 @@ function BookCard({ book, onSelect }: BookCardProps) {
         '&:hover': { boxShadow: 6 },
       }}
     >
+      <Tooltip title="Xoá khỏi thư viện">
+        <IconButton
+          size="small"
+          disabled={deleting}
+          aria-label={`Xoá ${book.title}`}
+          onClick={(event) => {
+            event.stopPropagation();
+            onDelete();
+          }}
+          sx={{
+            position: 'absolute',
+            top: 8,
+            right: 8,
+            zIndex: 1,
+            bgcolor: 'rgba(255,255,255,0.92)',
+            boxShadow: 1,
+            '&:hover': { bgcolor: 'background.paper' },
+          }}
+        >
+          <DeleteOutlineIcon fontSize="small" />
+        </IconButton>
+      </Tooltip>
       <CardActionArea
         onClick={onSelect}
         sx={{ flexGrow: 1, display: 'flex', flexDirection: 'column', alignItems: 'stretch' }}
@@ -354,6 +380,18 @@ function OpenPdfDialog({ facade }: OpenPdfDialogProps) {
 
 export function BookList({ onSelectBook }: BookListProps) {
   const facade = useBooksFacade({ onSelectBook });
+  const [bookToDelete, setBookToDelete] = useState<Book | null>(null);
+
+  const closeDeleteDialog = () => {
+    setBookToDelete(null);
+  };
+
+  const confirmDeleteBook = () => {
+    if (!bookToDelete) return;
+
+    facade.deleteBook(bookToDelete.id);
+    closeDeleteDialog();
+  };
 
   return (
     <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column', bgcolor: 'background.default' }}>
@@ -392,7 +430,12 @@ export function BookList({ onSelectBook }: BookListProps) {
           <Grid container spacing={{ xs: 2, sm: 3 }}>
             {facade.books.map((book) => (
               <Grid key={book.id} size={{ xs: 12, sm: 6, md: 4, lg: 3 }}>
-                <BookCard book={book} onSelect={() => onSelectBook(book)} />
+                <BookCard
+                  book={book}
+                  deleting={facade.deleting}
+                  onDelete={() => setBookToDelete(book)}
+                  onSelect={() => onSelectBook(book)}
+                />
               </Grid>
             ))}
           </Grid>
@@ -400,6 +443,22 @@ export function BookList({ onSelectBook }: BookListProps) {
       </Box>
 
       <OpenPdfDialog facade={facade} />
+      <Dialog open={Boolean(bookToDelete)} onClose={closeDeleteDialog} fullWidth maxWidth="xs">
+        <DialogTitle>Xoá book?</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2">
+            Xoá "{bookToDelete?.title}" khỏi thư viện. Ghi chú và nét vẽ của PDF này sẽ được giữ lại.
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={closeDeleteDialog} color="inherit">
+            Huỷ
+          </Button>
+          <Button variant="contained" color="error" disabled={facade.deleting} onClick={confirmDeleteBook}>
+            Xoá
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 }

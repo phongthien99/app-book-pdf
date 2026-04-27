@@ -85,4 +85,10 @@ export const bookRepository = {
 
     return Promise.resolve(books);
   },
+
+  async delete(bookId: string): Promise<void> {
+    writeStoredBooks(readStoredBooks().filter((book) => book.id !== bookId));
+
+    return Promise.resolve();
+  },
 };

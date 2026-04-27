@@ -26,6 +26,7 @@ import {
   ButtonBase,
   Menu,
   MenuItem,
+  Paper,
   Toolbar as MuiToolbar,
   Typography,
   Alert,
@@ -71,6 +72,52 @@ type PdfContextMenu = {
   pageNumber: number;
   selectedText: string;
 };
+
+function isTouchLikeContextMenu(event: React.MouseEvent<HTMLDivElement>) {
+  const nativeEvent = event.nativeEvent;
+
+  if ('pointerType' in nativeEvent) {
+    return nativeEvent.pointerType === 'touch' || nativeEvent.pointerType === 'pen';
+  }
+
+  return window.matchMedia('(pointer: coarse)').matches;
+}
+
+function isCoarsePointerDevice() {
+  return window.matchMedia('(pointer: coarse)').matches;
+}
+
+function getElementFromSelectionNode(node: Node | null) {
+  if (!node) return null;
+
+  return node.nodeType === Node.ELEMENT_NODE ? (node as Element) : node.parentElement;
+}
+
+function getPdfSelectionMenu(container: HTMLDivElement, fallbackPage: number): PdfContextMenu | null {
+  const selection = window.getSelection();
+  const selectedText = selection?.toString().trim() ?? '';
+  if (!selection || selection.rangeCount === 0 || !selectedText) return null;
+
+  const anchorElement = getElementFromSelectionNode(selection.anchorNode);
+  const focusElement = getElementFromSelectionNode(selection.focusNode);
+  if (!anchorElement || !focusElement) return null;
+  if (!container.contains(anchorElement) || !container.contains(focusElement)) return null;
+
+  const range = selection.getRangeAt(0);
+  const rect = Array.from(range.getClientRects()).find((clientRect) => clientRect.width || clientRect.height)
+    ?? range.getBoundingClientRect();
+  if (!rect.width && !rect.height) return null;
+
+  const pageElement = anchorElement.closest('[data-page]') ?? focusElement.closest('[data-page]');
+  const pageNumber = pageElement ? Number(pageElement.getAttribute('data-page')) : fallbackPage;
+
+  return {
+    mouseX: rect.left + rect.width / 2,
+    mouseY: rect.bottom + 8,
+    pageNumber: Number.isFinite(pageNumber) && pageNumber > 0 ? pageNumber : fallbackPage,
+    selectedText,
+  };
+}
 
 function createPdfRef(rawRef: unknown) {
   if (!rawRef || typeof rawRef !== 'object' || !('num' in rawRef) || !('gen' in rawRef)) {
@@ -252,6 +299,7 @@ function App({ pdfUrl, title, onBack }: AppProps) {
   const [outlineItems, setOutlineItems] = useState<OutlineEntry[]>([]);
   const [outlineLoading, setOutlineLoading] = useState(false);
   const [contextMenu, setContextMenu] = useState<PdfContextMenu | null>(null);
+  const [selectionMenuMode, setSelectionMenuMode] = useState<'context' | 'touch-toolbar'>('context');
   const [noteDraftSeed, setNoteDraftSeed] = useState<NoteDraftSeed | null>(null);
   const [autoSavedNoteSeed, setAutoSavedNoteSeed] = useState<AutoSavedNoteSeed | null>(null);
   const [translationErrorMessage, setTranslationErrorMessage] = useState('');
@@ -340,6 +388,27 @@ function App({ pdfUrl, title, onBack }: AppProps) {
       active = false;
     };
   }, [pdfDoc]);
+
+  useEffect(() => {
+    if (!pdfDoc || drawingTool || !isCoarsePointerDevice()) return;
+
+    const handleSelectionChange = () => {
+      window.setTimeout(() => {
+        const container = containerRef.current;
+        if (!container) return;
+
+        const selectionMenu = getPdfSelectionMenu(container, currentPage);
+        setSelectionMenuMode('touch-toolbar');
+        setContextMenu(selectionMenu);
+      }, 250);
+    };
+
+    document.addEventListener('selectionchange', handleSelectionChange);
+
+    return () => {
+      document.removeEventListener('selectionchange', handleSelectionChange);
+    };
+  }, [currentPage, drawingTool, pdfDoc]);
 
   // IntersectionObserver to track which page is visible
   useEffect(() => {
@@ -471,12 +540,16 @@ function App({ pdfUrl, title, onBack }: AppProps) {
 
   const handlePdfContextMenu = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
     if (!pdfDoc || drawingTool) return;
+    if (isTouchLikeContextMenu(event)) {
+      return;
+    }
 
     const target = event.target instanceof Element ? event.target : null;
     const pageElement = target?.closest('[data-page]');
     const pageNumber = pageElement ? Number(pageElement.getAttribute('data-page')) : currentPage;
 
     event.preventDefault();
+    setSelectionMenuMode('context');
     setContextMenu({
       mouseX: event.clientX + 2,
       mouseY: event.clientY - 6,
@@ -822,6 +895,26 @@ function App({ pdfUrl, title, onBack }: AppProps) {
             alignItems: 'center',
             py: 2,
             position: 'relative',
+            '& .react-pdf__Page': {
+              overflow: 'hidden',
+            },
+            '& .react-pdf__Page__canvas': {
+              display: 'block',
+            },
+            '& .react-pdf__Page__textContent': {
+              inset: 0,
+              width: '100% !important',
+              height: '100% !important',
+              lineHeight: 1,
+              textSizeAdjust: 'none',
+              WebkitTextSizeAdjust: 'none',
+              transformOrigin: '0 0',
+            },
+            '& .react-pdf__Page__textContent span': {
+              boxSizing: 'content-box',
+              lineHeight: 1,
+              transformOrigin: '0 0',
+            },
           }}
         >
           {pdfUrl ? (
@@ -925,32 +1018,81 @@ function App({ pdfUrl, title, onBack }: AppProps) {
           )}
         </Box>
 
-        <Menu
-          open={contextMenu !== null}
-          onClose={closeContextMenu}
-          anchorReference="anchorPosition"
-          anchorPosition={
-            contextMenu
-              ? { top: contextMenu.mouseY, left: contextMenu.mouseX }
-              : undefined
-          }
-        >
-          <MenuItem
-            disabled={!contextMenu?.selectedText || pdfTranslation.translating}
-            onClick={() => void handleContextTranslateAndSaveNote()}
+        {selectionMenuMode === 'context' ? (
+          <Menu
+            open={contextMenu !== null}
+            onClose={closeContextMenu}
+            anchorReference="anchorPosition"
+            anchorPosition={
+              contextMenu
+                ? { top: contextMenu.mouseY, left: contextMenu.mouseX }
+                : undefined
+            }
           >
-            {pdfTranslation.translating ? (
-              <CircularProgress size={18} sx={{ mr: 1 }} />
-            ) : (
-              <TranslateIcon fontSize="small" sx={{ mr: 1 }} />
-            )}
-            Dịch và lưu ghi chú
-          </MenuItem>
-          <MenuItem onClick={handleContextAddNote}>
-            <NoteAddIcon fontSize="small" sx={{ mr: 1 }} />
-            Thêm ghi chú vào bên phải
-          </MenuItem>
-        </Menu>
+            <MenuItem
+              disabled={!contextMenu?.selectedText || pdfTranslation.translating}
+              onClick={() => void handleContextTranslateAndSaveNote()}
+            >
+              {pdfTranslation.translating ? (
+                <CircularProgress size={18} sx={{ mr: 1 }} />
+              ) : (
+                <TranslateIcon fontSize="small" sx={{ mr: 1 }} />
+              )}
+              Dịch và lưu ghi chú
+            </MenuItem>
+            <MenuItem onClick={handleContextAddNote}>
+              <NoteAddIcon fontSize="small" sx={{ mr: 1 }} />
+              Thêm ghi chú vào bên phải
+            </MenuItem>
+          </Menu>
+        ) : (
+          contextMenu && (
+            <Paper
+              elevation={6}
+              sx={{
+                position: 'fixed',
+                top: contextMenu.mouseY,
+                left: contextMenu.mouseX,
+                transform: 'translate(-50%, 0)',
+                zIndex: (theme) => theme.zIndex.modal + 1,
+                display: 'flex',
+                alignItems: 'center',
+                gap: 0.25,
+                p: 0.5,
+                borderRadius: 999,
+                bgcolor: 'background.paper',
+                border: '1px solid',
+                borderColor: 'divider',
+              }}
+            >
+              <Tooltip title="Dịch và lưu ghi chú">
+                <span>
+                  <IconButton
+                    size="small"
+                    disabled={!contextMenu.selectedText || pdfTranslation.translating}
+                    onClick={() => void handleContextTranslateAndSaveNote()}
+                    aria-label="Dịch và lưu ghi chú"
+                  >
+                    {pdfTranslation.translating ? (
+                      <CircularProgress size={18} />
+                    ) : (
+                      <TranslateIcon fontSize="small" />
+                    )}
+                  </IconButton>
+                </span>
+              </Tooltip>
+              <Tooltip title="Thêm ghi chú">
+                <IconButton
+                  size="small"
+                  onClick={handleContextAddNote}
+                  aria-label="Thêm ghi chú"
+                >
+                  <NoteAddIcon fontSize="small" />
+                </IconButton>
+              </Tooltip>
+            </Paper>
+          )
+        )}
 
         {translationErrorMessage && (
           <Alert
